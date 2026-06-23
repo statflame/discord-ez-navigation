@@ -386,3 +386,76 @@
 }
 
 .vc-guildlisting-header-btn:hover { color: var(--interactive-hover); }
+
+.vc-guildlisting-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.vc-guildlisting-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vc-guildlisting-setting-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #eef0f4;
+}
+
+.vc-guildlisting-setting-desc {
+    font-size: 11.5px;
+    color: #7d8492;
+}
+
+.vc-guildlisting-setting-input {
+    background: var(--gl-field);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 9px;
+    padding: 8px 11px;
+    color: #e9ecf2;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.12s;
+}
+
+.vc-guildlisting-setting-input:focus {
+    border-color: var(--gl-edge);
+}
+
+.vc-guildlisting-toggle {
+    box-sizing: border-box;
+    align-self: flex-start;
+    width: 38px;
+    height: 22px;
+    padding: 0;
+    border-radius: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.vc-guildlisting-toggle[data-active="true"] {
+    background: var(--gl-accent-bg-h);
+    border-color: var(--gl-edge);
+}
+
+.vc-guildlisting-toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #cdd2db;
+    transition: transform 0.15s, background 0.15s;
+}
+
+.vc-guildlisting-toggle[data-active="true"] .vc-guildlisting-toggle-knob {
+    transform: translateX(16px);
+    background: #fff;
+}

@@ -13,6 +13,8 @@ import {
     GuildRoleStore,
     GuildStore,
     NavigationRouter,
+    PermissionsBits,
+    PermissionStore,
     React,
     SelectedChannelStore,
     SelectedGuildStore,
@@ -67,10 +69,15 @@ const settings = definePluginSettings({
         type: OptionType.SELECT,
         description: "How to count category members.",
         options: [
-            { label: "Member list (accurate, only for loaded/hoisted roles)", value: "memberList", default: true },
-            { label: "Cached members (fills more rows, may undercount)", value: "cached" },
+            { label: "Members with the role (cached)", value: "cached", default: true },
+            { label: "Member-list group (online-ish, needs loaded list)", value: "memberList" },
             { label: "Off (hide member count)", value: "off" },
         ],
+    },
+    hideInaccessible: {
+        type: OptionType.BOOLEAN,
+        description: "Hide categories you cannot access (no viewable channel to jump to).",
+        default: true,
     },
 });
 
@@ -131,8 +138,17 @@ function memberCountFor(guildId: string, roleId: string | undefined, groups: Map
     if (!roleId) return null;
     switch (settings.store.memberCountSource) {
         case "off": return null;
-        case "cached": return countCachedRole(guildId, roleId);
-        default: return groups.has(roleId) ? groups.get(roleId)! : null;
+        case "memberList": return groups.has(roleId) ? groups.get(roleId)! : countCachedRole(guildId, roleId);
+        default: return countCachedRole(guildId, roleId);
+    }
+}
+
+function canViewChannel(channel: any): boolean {
+    if (!channel) return false;
+    try {
+        return PermissionStore.can(PermissionsBits.VIEW_CHANNEL, channel);
+    } catch {
+        return true;
     }
 }
 
@@ -153,17 +169,18 @@ function getGuilds(guildId: string): GuildRecord[] {
         }
     }
 
+    const norm = (s: string) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
     const prefix = settings.store.rolePrefix ?? "";
     const roleIdByName = new Map<string, string>();
     const roles = GuildRoleStore.getRolesSnapshot?.(guildId) ?? {};
-    for (const r of Object.values<any>(roles)) roleIdByName.set(r.name, r.id);
+    for (const r of Object.values<any>(roles)) roleIdByName.set(norm(r.name), r.id);
 
     const groups = buildGroupCounts(guildId);
     const match = (settings.store.generalMatch || "general").toLowerCase();
 
     return [...catMap.values()]
         .filter(cat => !excludedCats.has(cat.id) && cat.id !== guildId && (cat.name || "").trim().toLowerCase() !== "uncategorized")
-        .map((cat, i) => {
+        .map((cat, i): GuildRecord | null => {
             const childMap = new Map<string, any>();
             for (const c of channels) if (c.parent_id === cat.id) childMap.set(c.id, c);
             const children = [...childMap.values()].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
@@ -172,7 +189,11 @@ function getGuilds(guildId: string): GuildRecord[] {
                 texts.find(c => (c.name ?? "").toLowerCase().includes(match)) ??
                 texts[0] ??
                 children[0];
-            const roleId = roleIdByName.get(prefix + cat.name);
+            if (settings.store.hideInaccessible && !canViewChannel(general)) return null;
+            const roleId =
+                roleIdByName.get(norm(prefix + cat.name)) ??
+                roleIdByName.get(norm("Guild " + cat.name)) ??
+                roleIdByName.get(norm(cat.name));
             return {
                 id: cat.id,
                 name: cat.name,
@@ -181,7 +202,8 @@ function getGuilds(guildId: string): GuildRecord[] {
                 memberCount: memberCountFor(guildId, roleId, groups),
                 generalId: general?.id,
             };
-        });
+        })
+        .filter((r): r is GuildRecord => r != null);
 }
 
 const ListingIcon = ({ size = 18 }: { size?: number; }) => (
@@ -204,6 +226,93 @@ const CloseIcon = () => (
         strokeWidth="2.2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
 );
 
+const GearIcon = () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.2.61.8 1 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+);
+
+const BackIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+);
+
+const COUNT_OPTS = [
+    { value: "cached", label: "Cached" },
+    { value: "memberList", label: "Member list" },
+    { value: "off", label: "Off" },
+];
+
+function SettingsRow({ label, desc, control }: { label: string; desc?: string; control: any; }) {
+    return (
+        <div className={cl("setting")}>
+            <div className={cl("setting-label")}>{label}</div>
+            {desc && <div className={cl("setting-desc")}>{desc}</div>}
+            {control}
+        </div>
+    );
+}
+
+function SettingsView() {
+    const s: any = settings.use([
+        "enabledGuildIds", "excludedCategoryIds", "excludedChannelIds",
+        "generalMatch", "rolePrefix", "memberCountSource", "hideInaccessible",
+    ]);
+
+    const textInput = (key: string) => (
+        <input
+            className={cl("setting-input")}
+            value={s[key]}
+            spellCheck={false}
+            onChange={e => { (settings.store as any)[key] = e.currentTarget.value; }}
+        />
+    );
+
+    return (
+        <div className={cl("settings")}>
+            <SettingsRow label="Enabled servers" desc="Server IDs to show the button in. Empty = all servers." control={textInput("enabledGuildIds")} />
+            <SettingsRow label="Excluded categories" desc="Category IDs to hide. Comma/space separated." control={textInput("excludedCategoryIds")} />
+            <SettingsRow label="Excluded channels" desc="Channel IDs to ignore entirely." control={textInput("excludedChannelIds")} />
+            <SettingsRow label="Jump channel match" desc="Channel-name substring to Jump to." control={textInput("generalMatch")} />
+            <SettingsRow label="Member-count role prefix" desc="Counts the role named: prefix + category name." control={textInput("rolePrefix")} />
+            <SettingsRow
+                label="Member count source"
+                control={
+                    <div className={cl("sort")}>
+                        {COUNT_OPTS.map(o => (
+                            <button
+                                key={o.value}
+                                className={cl("sort-btn")}
+                                data-active={s.memberCountSource === o.value}
+                                onClick={() => { settings.store.memberCountSource = o.value; }}
+                            >
+                                {o.label}
+                            </button>
+                        ))}
+                    </div>
+                }
+            />
+            <SettingsRow
+                label="Hide inaccessible categories"
+                desc="Hide categories with no channel you can open."
+                control={
+                    <button
+                        className={cl("toggle")}
+                        role="switch"
+                        aria-checked={s.hideInaccessible}
+                        data-active={s.hideInaccessible}
+                        onClick={() => { settings.store.hideInaccessible = !settings.store.hideInaccessible; }}
+                    >
+                        <span className={cl("toggle-knob")} />
+                    </button>
+                }
+            />
+        </div>
+    );
+}
+
 const SORTS = [
     { key: "default", label: "Default" },
     { key: "name", label: "A–Z" },
@@ -224,6 +333,14 @@ function jumpToGuild(guildId: string, g: GuildRecord) {
     }
 }
 
+let modalKey: string | null = null;
+let peeking = false;
+let altPressTime = 0;
+let comboUsed = false;
+let typedSinceOpen = false;
+let savedScrollTop = 0;
+const TAP_MS = 200;
+
 function GuildListingModal({ modalProps, guildId }: { modalProps: ModalProps; guildId: string; }) {
     const all = React.useMemo(() => getGuilds(guildId), [guildId]);
     const serverName = GuildStore.getGuild(guildId)?.name ?? "this server";
@@ -231,6 +348,12 @@ function GuildListingModal({ modalProps, guildId }: { modalProps: ModalProps; gu
     const [search, setSearch] = React.useState("");
     const [sortKey, setSortKey] = React.useState<SortKey>("default");
     const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc");
+    const [view, setView] = React.useState<"list" | "settings">("list");
+
+    React.useLayoutEffect(() => {
+        const el = document.querySelector<HTMLElement>(".vc-guildlisting-content");
+        if (el && savedScrollTop > 0) el.scrollTop = savedScrollTop;
+    }, []);
 
     const filtered = React.useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -249,21 +372,29 @@ function GuildListingModal({ modalProps, guildId }: { modalProps: ModalProps; gu
     return (
         <ModalRoot {...modalProps} size={ModalSize.MEDIUM}>
             <div className={cl("header")}>
-                <div className={cl("header-icon")} style={{ color: "#fff" }}><ListingIcon size={20} /></div>
+                <div className={cl("header-icon")} style={{ color: "#fff" }}>
+                    {view === "settings" ? <GearIcon /> : <ListingIcon size={20} />}
+                </div>
                 <div className={cl("titlewrap")}>
                     <h2 className={cl("title")}>
-                        EzNavigation
-                        <span className={cl("count")}>{all.length}</span>
+                        {view === "settings" ? "Settings" : "EzNavigation"}
+                        {view === "list" && <span className={cl("count")}>{all.length}</span>}
                     </h2>
-                    <span className={cl("subtitle")}>Easily navigate between categories inside {serverName}</span>
+                    <span className={cl("subtitle")}>
+                        {view === "settings" ? "EzNavigation settings" : `Easily navigate between categories inside ${serverName}`}
+                    </span>
                 </div>
                 <div className={cl("header-actions")}>
+                    {view === "settings"
+                        ? <button onClick={() => setView("list")} aria-label="Back"><BackIcon /></button>
+                        : <button onClick={() => setView("settings")} aria-label="Settings"><GearIcon /></button>}
                     <div className={cl("header-divider")} />
                     <button onClick={() => modalProps.onClose()} aria-label="Close"><CloseIcon /></button>
                 </div>
             </div>
 
-            <ModalContent className={cl("content")}>
+            <ModalContent className={cl("content")} onScroll={(e: any) => { savedScrollTop = e.currentTarget.scrollTop; }}>
+                {view === "settings" ? <SettingsView /> : <>
                 <div className={cl("search")}>
                     <SearchIcon />
                     <input
@@ -272,8 +403,7 @@ function GuildListingModal({ modalProps, guildId }: { modalProps: ModalProps; gu
                         spellCheck={false}
                         autoFocus
                         placeholder="Search categories…"
-                        onChange={e => setSearch(e.currentTarget.value)}
-                        onKeyDown={e => { if (e.key === "Escape") setSearch(""); }}
+                        onChange={e => { setSearch(e.currentTarget.value); typedSinceOpen = true; }}
                     />
                     {search && <span className={cl("search-count")}>{filtered.length}/{all.length}</span>}
                 </div>
@@ -326,35 +456,57 @@ function GuildListingModal({ modalProps, guildId }: { modalProps: ModalProps; gu
                         </div>
                     )}
                 </div>
+                </>}
             </ModalContent>
         </ModalRoot>
     );
 }
 
-let modalKey: string | null = null;
-
 function openGuildListing(guildId?: string | null) {
     const id = guildId ?? SelectedGuildStore.getGuildId();
     if (!id || !isEnabledGuild(id) || modalKey) return;
+    typedSinceOpen = false;
     modalKey = openModal(props => (
         <ErrorBoundary>
             <GuildListingModal modalProps={props} guildId={id} />
         </ErrorBoundary>
-    ), { onCloseCallback: () => { modalKey = null; } });
+    ), { onCloseCallback: () => { modalKey = null; peeking = false; } });
 }
 
 function closeGuildListing() {
     if (!modalKey) return;
     closeModal(modalKey);
     modalKey = null;
+    peeking = false;
 }
 
-function onAltKeyDown(e: KeyboardEvent) {
-    if (e.code === "AltLeft" && !e.repeat) openGuildListing();
+function onGlobalKeyDown(e: KeyboardEvent) {
+    if (e.code === "Escape") {
+        if (modalKey) closeGuildListing();
+        return;
+    }
+    if (e.code === "AltLeft") {
+        if (e.repeat) return;
+        if (modalKey) { closeGuildListing(); return; }
+        altPressTime = Date.now();
+        comboUsed = false;
+        openGuildListing();
+        peeking = modalKey != null;
+        return;
+    }
+    if (peeking) comboUsed = true;
 }
 
-function onAltKeyUp(e: KeyboardEvent) {
-    if (e.code === "AltLeft") closeGuildListing();
+function onGlobalKeyUp(e: KeyboardEvent) {
+    if (e.code !== "AltLeft" || !peeking) return;
+    peeking = false;
+    const heldLong = Date.now() - altPressTime >= TAP_MS;
+    const keep = typedSinceOpen || (!heldLong && !comboUsed);
+    if (!keep) closeGuildListing();
+}
+
+function onWindowBlur() {
+    peeking = false;
 }
 
 const HEADER_BTN_ID = "vc-guildlisting-header-btn";
@@ -407,7 +559,7 @@ function stopObservers() {
     document.getElementById(HEADER_BTN_ID)?.remove();
 }
 
-export default definePlugin({
+const EzNavigationPlugin = definePlugin({
     name: "EzNavigation",
     description: "Dupers University: server-header button → searchable category directory with member counts, Jump to #general.",
     authors: [{ name: "statflame", id: 0n }],
@@ -429,15 +581,19 @@ export default definePlugin({
     start() {
         enableStyle(managedStyle);
         startObservers();
-        document.addEventListener("keydown", onAltKeyDown);
-        document.addEventListener("keyup", onAltKeyUp);
+        document.addEventListener("keydown", onGlobalKeyDown);
+        document.addEventListener("keyup", onGlobalKeyUp);
+        window.addEventListener("blur", onWindowBlur);
     },
 
     stop() {
-        document.removeEventListener("keydown", onAltKeyDown);
-        document.removeEventListener("keyup", onAltKeyUp);
+        document.removeEventListener("keydown", onGlobalKeyDown);
+        document.removeEventListener("keyup", onGlobalKeyUp);
+        window.removeEventListener("blur", onWindowBlur);
         closeGuildListing();
         stopObservers();
         disableStyle(managedStyle);
     },
 });
+
+export default EzNavigationPlugin;
