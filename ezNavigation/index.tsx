@@ -506,6 +506,7 @@ function onGlobalKeyUp(e: KeyboardEvent) {
 }
 
 function onWindowBlur() {
+    if (peeking) closeGuildListing();
     peeking = false;
 }
 
